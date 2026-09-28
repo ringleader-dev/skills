@@ -1,0 +1,25 @@
+# SSHKey template.
+#
+# REQUIRED for a private repository — the box cannot clone it otherwise.
+# WORTH SHIPPING COMMENTED OUT for a public one: the forwarded agent is the only outbound
+# credential the box has, so a developer who wants to `git push` needs this even though the clone
+# did not. Leave it in the manifest set, commented, with the note below.
+#
+# Device-local: this object never reaches a control plane, and the private key never reaches the
+# box. The daemon loads it into an in-process keyring and forwards it as an ssh-agent, so an in-box
+# `git clone git@github.com:...` (and `git push`) authenticates as you.
+#
+# It MUST land in the same namespace as the Workstation, or it is silently not forwarded.
+# There is no inline-key field: spec.path names the key on THIS laptop.
+apiVersion: workstations.ringleader.dev/v1
+kind: SSHKey
+metadata:
+  name: <app>-git-${shortHash:creatorUserId}
+spec:
+  path: ~/.ssh/<key>
+  # Scope it to this workstation. An absent or empty selector matches EVERY workstation in the
+  # namespace — and the interior is an opaque subtree, so a typo in `matchLabels` silently means
+  # "match everything". Proof-read it.
+  selector:
+    matchLabels:
+      app: <app>-${shortHash:creatorUserId}

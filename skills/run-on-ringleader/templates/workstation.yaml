@@ -1,0 +1,44 @@
+# Workstation template.
+#
+# No provider and no requirements unless the user names a cloud (SKILL.md §3 check 5): capability
+# discovery picks the local provider (qemu on Linux,
+# lima on macOS), and the same file works unchanged against a control plane. The label is what the
+# WorkstationConfig's selector matches. The ${shortHash:creatorUserId} suffix keeps two people
+# applying this into a shared namespace from colliding — `rl apply` is an upsert.
+apiVersion: workstations.ringleader.dev/v1
+kind: Workstation
+metadata:
+  name: <app>-${shortHash:creatorUserId}
+  labels:
+    app: <app>-${shortHash:creatorUserId}
+spec:
+  # SIZE IT UP FRONT — this is a CREATE-TIME decision, not something you can fix later.
+  #
+  # The default local VM is 1 GiB RAM / 2 vCPU, which cannot run `npm ci`, a bundler, a compiler
+  # or a multi-stage Docker build. A VM that runs out does not fail a step: it DIES, and the box
+  # reprovisions from scratch.
+  #
+  # And you cannot correct it by editing this file: qemu's DiffSpec compares only the base image,
+  # so a sizing edit is an EMPTY diff — no drift, no error, nothing to observe — and stop/start
+  # relaunches from the persisted machine.json. Only delete + recreate re-derives it, which WIPES
+  # the overlay disk (the generated .env and any uncommitted work go with it).
+  #
+  # The accepted keys DIFFER BY PROVIDER, and the block is free-form and unvalidated, so a key
+  # the provider does not decode is SILENTLY DISCARDED — no error anywhere:
+  #   qemu (Linux):  image, command, memory, cpus, disk
+  #   lima (macOS):  cpus, memory, disk
+  # Verify what the box actually got: rl shell <name> -- 'free -g; nproc; df -h /'
+  providerConfig:
+    memory: 8   # GiB (not MiB)
+    cpus: 4
+    disk: 40  # GiB. The 8 GiB default is a FLOOR, not a budget. Measured on rl 0.12.0/qemu:
+              # `disk: 40` gives a 40 GiB device, 38 GiB usable, 36 GiB free — against the
+              # default box's 6.7 GiB usable / 4.5 GiB free with only `git` installed, and
+              # 3.8 GiB once docker and nodejs are on it. A request BELOW 8 is clamped up to
+              # 8, which is what makes 8 a floor rather than a default. The overlay is sparse,
+              # so over-asking costs nothing until it is written.
+  #
+  # A container-heavy stack exhausts the default mid-build with `no space left on device`, which
+  # is neither a manifest bug nor re-appliable — disk is fixed at create. Size it from the run
+  # plan here; recreating at a larger size is a ONE-TIME backstop, not a retry loop (see SKILL.md
+  # §5, "The one bounded exception"). Check headroom early: rl shell <name> -- 'df -h /'

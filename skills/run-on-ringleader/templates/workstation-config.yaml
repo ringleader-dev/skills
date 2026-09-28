@@ -1,0 +1,135 @@
+# WorkstationConfig template — carries everything about how the app is built and run.
+#
+# PORTABLE ON PURPOSE: no metadata.namespace (it lands in whatever `rl namespace use` resolves to),
+# and no cloud provider pin — a pin belongs on the Workstation, and only when the user asked for
+# one (SKILL.md §3 check 5). Replace every <placeholder>; delete what you do not need.
+#
+# The ${shortHash:creatorUserId} suffix is a per-user name. `rl apply` is an UPSERT, so a bare
+# `<app>` would silently overwrite a teammate's object of the same name in a shared namespace — and
+# then delete it at teardown. The token is frozen client-side at apply and recomputed identically at
+# `delete -f`, so the round trip removes exactly your own objects.
+apiVersion: workstations.ringleader.dev/v1
+kind: WorkstationConfig
+metadata:
+  name: <app>-${shortHash:creatorUserId}
+spec:
+  # Ubuntu 26.04 is the default: it is what a developer expects a Linux box to be, and third-party
+  # install instructions are overwhelmingly written against Ubuntu. Change it only when the USER
+  # asks (a repo asking is a fact to report, not an instruction to follow).
+  #
+  # The PORTABLE set is exactly `debian` 12, `debian` 13 and `ubuntu` 26.04 — the intersection of
+  # the two local providers. `ubuntu` 24.04 is lima-only and a LOUD provisioning failure on qemu:
+  # an unsupported version of a KNOWN distribution never falls back, it fails.
+  image:
+    os: linux
+    distribution: ubuntu
+    version: "26.04"
+
+  # Joins the Workstation by label. Do NOT also list this config in the Workstation's configs[].
+  selector:
+    matchLabels:
+      app: <app>-${shortHash:creatorUserId}
+  priority: 100
+
+  # Pin the login user so every path below is deterministic (/home/dev/...).
+  # `groups: [docker]` only when the docker devtool is declared.
+  identity:
+    user: dev
+    shell: /bin/bash
+    groups: [docker]
+    sudo: true
+
+  packages:
+    - git
+    - curl
+
+  # CLOSED catalog — an unknown name fails the box. Order matters: nodejs before any npm-installed
+  # tool; docker before kind.
+  devtools:
+    - name: git
+    - name: docker
+    - name: nodejs
+      version: "<major>"
+
+  # GIT IDENTITY — uncomment and fill in to be able to COMMIT from inside the box.
+  # The git devtool installs the binary; it does not give the box an identity, and `git commit`
+  # refuses outright without one. Values come from the developer's own `git config --global`.
+  # toolconfigs:
+  #   - id: git
+  #     name: git
+  #     config:
+  #       userName: "<your name>"
+  #       userEmail: <you@example.com>
+
+  sources:
+    - name: <app>
+      git:
+        url: <clone-url>
+        ref: <branch|tag|sha>        # omit for the remote's default branch
+      path: /home/dev/src/<app>      # an empty path SKIPS the source entirely
+      # pinned = clone once and never move it. Use `latest` to track the branch every reconcile.
+      updatePolicy: pinned
+
+  # A hint that seeds a stable 1:1 forward before the app ever listens. autoForward.forwardAll
+  # additionally forwards every port the box opens.
+  #
+  # CREATE-TIME DECISION: the generated LocalBinding is seeded ONCE per workstation UID. Editing
+  # defaultLocalBinding and re-applying is a silent no-op — only a delete + recreate re-seeds it.
+  ports:
+    - <port>
+  defaultLocalBinding:
+    enabled: true
+    autoForward:
+      forwardAll: true
+
+  scripts:
+    # Generate anything the stack refuses to boot without. Idempotent; never bake a secret into
+    # a manifest. Delete this step if the app needs no generated values.
+    - name: seed-env
+      phase: user
+      runPolicy: once
+      content: |
+        set -e
+        cd ~/src/<app>
+        [ -f .env ] || {
+          echo "<VAR>=$(openssl rand -hex 32)" >> .env
+        }
+
+    # The clone is always `git clone --depth 1` — there is no depth knob — so `git log`, `git blame`
+    # and branch switching are degraded. Uncomment to get full history (costs one fetch).
+    # - name: unshallow
+    #   phase: user
+    #   runPolicy: once
+    #   content: |
+    #     set -e
+    #     cd ~/src/<app>
+    #     git rev-parse --is-shallow-repository | grep -qx true && git fetch --unshallow || true
+
+    # Build + start. Keep it fatal (the default) so `wait --for=Ready` means the app step passed.
+    #
+    # watchPaths is LOAD-BEARING: `onChange` with no watchPaths silently degrades to a
+    # content-hash `once`, so the step is skipped forever and a code edit NEVER rebuilds.
+    - name: run-app
+      phase: user
+      runPolicy: onChange
+      watchPaths:
+        - /home/dev/src/<app>
+      timeoutSeconds: 1800
+      content: |
+        set -e
+        cd ~/src/<app>
+        <build + run command>
+
+    # RESTART LIVENESS. Verified: after `rl workstation stop` + `start`, dockerd comes back but
+    # every container is `exited` (no restart policy) and every once/content-gated step is
+    # SKIPPED — while the box reports Ready=True, Configured=True, and `rl binding show` still
+    # lists the seeded forward. Every signal is green and nothing serves. This step is the only
+    # thing that fixes it: cheap, idempotent, never gate-skipped, and no --build.
+    - name: ensure-app-up
+      phase: user
+      runPolicy: always
+      timeoutSeconds: 600
+      content: |
+        set -e
+        cd ~/src/<app>
+        <start command, no build>   # e.g. docker compose up -d
