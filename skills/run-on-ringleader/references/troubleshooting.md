@@ -96,28 +96,30 @@ Then recreate **once** at a larger size — at least double what you asked for �
 report. A second `ENOSPC` after that is a real `capacity` finding, not another retry. The recreate
 wipes the overlay: the generated `.env`, the checkout and any in-box edits go with it.
 
+## The box failed and `status.message` says why
+
+Most provisioning failures now name their cause on the workstation itself, so read `status.message`
+(`rl workstation describe <name> -n <ns>`) before anything else:
+
+- **An image the provider does not carry** fails `CreateFailed` with a message such as
+  `qemu: unsupported image: distribution "ubuntu" version "24.04" (supported: debian-12,
+  debian-13, ubuntu-26.04)`. That is a manifest bug you wrote, not an environment problem: the
+  portable set is `ubuntu` 26.04 and `debian` 13.
+- **A cloud box missing a required field** names the field. The placement fields fail as
+  `ProviderUnavailable`; azure's network field fails later, as `CreateFailed`, naming both
+  `subnetId` and `networkInterfaceId`. `clouds.md` says whom to ask for which field.
+
 ## `internal error (ref: …)` and nothing else
 
-The message the operator sees is a reference, not a reason: the real one is in the daemon log.
-Booting `ubuntu` 24.04 on qemu produces exactly this, and the cause is only visible there:
+A message that is only a reference is a failure the product did not mark as yours to fix. The
+reason is in the daemon log under that reference:
 
 ```bash
 grep '<the ref>' ~/.ringleader/daemon.log
-# → qemu: unsupported image: distribution "ubuntu" version "24.04"
-#         (supported: debian-12, debian-13, ubuntu-26.04)
 ```
 
-So an opaque `CreateFailed` is **not** evidence of an environment problem. Check the log before
-classifying it as one — an unsupported `image:` you wrote yourself is a manifest bug, and the
-portable set is `ubuntu` 26.04, `debian` 12 and `debian` 13.
-
-**On a cloud-pinned box, check the manifest before the log.** The same opaque `CreateFailed` is
-what a missing azure network field produces: `ensureNIC` fails with an error that is not
-user-facing, so the field name never reaches the status. If the box pins `provider:azure` and its
-`providerConfig.azure` carries neither `networkInterfaceId` nor `subnetId`, that is almost
-certainly the cause — say so and ask which subnet, rather than hunting the ref. The other required
-fields fail earlier and more helpfully, as `ProviderUnavailable` naming the field;
-`references/manifests.md` has each cloud's set.
+Quote what you find in the report, and classify it from what it says. An opaque reference on its
+own is not evidence of an environment problem.
 
 ## After a stop/start the box says Ready and nothing answers
 

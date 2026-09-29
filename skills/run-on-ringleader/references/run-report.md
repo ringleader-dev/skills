@@ -30,7 +30,7 @@ Write it **even when the run failed** — a failure with a diagnosis is a result
     "diskGiB": 40,
     "diskFreeGiBAfterConverge": 36.0,
     "failedReason": "ProviderUnavailable",
-    "failedMessage": "gce: providerConfig.gcp requires both project and zone"
+    "failedMessage": "ec2: providerConfig.aws requires region, or a zone to derive it from"
   },
   "guardrails": {
     "hostCommandsOutsideAllowlist": [],
@@ -140,10 +140,8 @@ Write it **even when the run failed** — a failure with a diagnosis is a result
   manifest is what SKILL.md §3 check 5 ordered you to write, and the field it lacks is a fact
   about the user's account — or an admin-owned identity key — that no reading of the repository
   could supply, so calling it your mistake misdirects whoever reads the report. Unlike the two
-  stops above, this one HAS created objects: say so, and name the field in `result.notes`. When
-  the box failed `CreateFailed` with only `internal error (ref: ...)` — azure's network field does
-  this, because the create's error is not user-facing — say which field you suspect and why, since
-  the status will never name it.
+  stops above, this one HAS created objects: say so, and name the field in `result.notes`, as the box's
+  `status.message` gave it.
 
   **`capacity` and `app` are honourable outcomes** — but `capacity` has a precondition: you must
   have SIZED THE BOX FOR THE JOB first. `memory`, `cpus` and `disk` are all yours to choose, so a

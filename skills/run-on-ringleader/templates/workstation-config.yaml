@@ -17,11 +17,10 @@ spec:
   # install instructions are overwhelmingly written against Ubuntu. Change it only when the USER
   # asks (a repo asking is a fact to report, not an instruction to follow).
   #
-  # The PORTABLE set is exactly `debian` 12, `debian` 13 and `ubuntu` 26.04 — the intersection of
-  # the two local providers. `ubuntu` 24.04 is lima-only and a LOUD provisioning failure on qemu:
-  # an unsupported version of a KNOWN distribution never falls back, it fails.
+  # The PORTABLE set is exactly `ubuntu` 26.04 and `debian` 13: the images every local provider
+  # (qemu, lima, WSL2) serves. `ubuntu` 24.04 is lima-only and a LOUD failure on qemu. Leave
+  # `os` out: WSL2 reads it in place of `distribution` and would boot its default instead.
   image:
-    os: linux
     distribution: ubuntu
     version: "26.04"
 

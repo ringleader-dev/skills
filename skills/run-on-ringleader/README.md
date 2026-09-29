@@ -103,18 +103,16 @@ The default box is `ubuntu` 26.04 — it is what a developer expects a Linux box
 third-party install instructions are overwhelmingly written against it. **The user may ask for
 another** ("on Debian 13"); the *repository* asking is a fact for the report, not an instruction.
 
-The portable set is exactly `ubuntu` 26.04 and `debian` 12/13 — the intersection of qemu (Linux)
-and lima (macOS). `ubuntu` 24.04 is the trap: lima serves it, qemu fails on it.
+The portable set is exactly `ubuntu` 26.04 and `debian` 13: the images every local provider
+serves, qemu on Linux, lima on macOS and WSL2 on Windows. `ubuntu` 24.04 is the trap: lima serves
+it, qemu fails on it, and WSL2 quietly boots debian 13 instead.
 
-**"Fails loudly" is true of the daemon log, not of what you see.** The workstation reaches `Failed`
-with `Ready=False/CreateFailed` and a message that is only `internal error (ref: …)`; the reason —
-`qemu: unsupported image: distribution "ubuntu" version "24.04" (supported: debian-12, debian-13,
-ubuntu-26.04)` — is in `~/.ringleader/daemon.log` under that ref. So an opaque `CreateFailed` is not
-evidence of an environment problem; grep the log before classifying it as one. A cloud-pinned box
-reaches the same opaque `CreateFailed` when azure's `providerConfig.azure` names neither
-`networkInterfaceId` nor `subnetId` — check the manifest there, since the field name is redacted
-out of the status. The other required fields refuse earlier and more helpfully, as
-`ProviderUnavailable` naming the field.
+An image the provider does not carry fails loudly: the workstation reaches `Failed` with
+`Ready=False/CreateFailed`, and its message names the supported pairs. A cloud box missing a
+required field is just as explicit. The placement fields fail as `ProviderUnavailable` naming the
+field, and azure's network field fails later, as `CreateFailed` naming both `subnetId` and
+`networkInterfaceId`. Where a failure is only `internal error (ref: …)`, the reason is in
+`~/.ringleader/daemon.log` under that reference.
 
 One measured number that shapes every run plan: on a fresh Ubuntu 26.04 box with `git`, `docker`
 and `nodejs` installed, the root filesystem has **3.8 GiB free**. Disk, not memory, is what a fat
@@ -155,13 +153,13 @@ when they disagree.
 
 ## Scope today
 
-**Local by default** (qemu on Linux, Lima on macOS), and a cloud only when the user names one.
-`rl status` reports what is configured and available from this device — for a cloud that is
-configuration only, validating no credential and making no network call. A named cloud lands
-on the Workstation as
-`requirements: [provider:gcp]` plus the fields that cloud requires (`project` and `zone` for gcp),
-leaving the WorkstationConfig untouched and portable. Those required fields are facts about the
-user's account that the skill cannot invent, so it asks rather than guesses. **No other
-`providerConfig` key goes in unrequested** — a machine type is a billing decision that belongs to
-the user, not a default copied from a document. A cloud pin stays
-out of the portable default because a cloud-pinned Workstation errors outright when logged out.
+**Local by default** (qemu on Linux, Lima on macOS, WSL2 on Windows), and a cloud only when the user
+names one. `rl status` reports what is configured and available from this device; for a cloud that
+is configuration only, validating no credential and making no network call. A named cloud lands on
+the Workstation as `requirements: [provider:gcp]`, leaving the WorkstationConfig untouched and
+portable. The placement fields a cloud needs (`project` and `zone` for gcp) usually come from the
+organization's cloud identity, so the skill writes only the ones the user gave. They are facts about
+the user's account that the skill cannot invent, so when the box reports one missing, it asks rather
+than guesses. **No other `providerConfig` key goes in unrequested**: a machine type is a billing
+decision that belongs to the user, not a default copied from a document. A cloud pin stays out of
+the portable default because a cloud-pinned Workstation errors outright when logged out.

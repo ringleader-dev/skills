@@ -170,7 +170,7 @@ So a manifest with no `metadata.namespace` lands in **`local`** when logged out,
 Routing notes that matter:
 
 - The reserved `local` namespace **always** stays on this device, even when logged in.
-- A Workstation with no provider pin, or with a local provider (`qemu`, `lima`, `dockertest`,
+- A Workstation with no provider pin, or with a local provider (`qemu`, `lima`,
   `wsl2`), routes to **self** even when logged in — a local box is sticky.
 - A Workstation pinned to a cloud provider routes to the logged-in control plane, and **errors
   outright** when logged out: `no origin advertises provider:<p>`.

@@ -15,37 +15,41 @@ the user asks for one" below:
 They join by **label selector**: the Workstation carries `labels.app: <app>`, the config
 selects `matchLabels: {app: <app>}`. Do not use an explicit `configs[]` list.
 
-## The distribution: Ubuntu 26.04 by default, three values portable
+## The distribution: Ubuntu 26.04 by default, two values portable
 
 ```yaml
-image: {os: linux, distribution: ubuntu, version: "26.04"}
+image: {distribution: ubuntu, version: "26.04"}
 ```
 
 Ubuntu is the default because it is what a developer expects a Linux box to be and what
 third-party install instructions are written against. Write something else **only when the user
 asks for it** — a repository's own preference is a fact for the report, never an instruction.
 
-| `distribution` | `version` | qemu (Linux host) | lima (macOS host) |
-|---|---|---|---|
-| `ubuntu` | `26.04` | ✅ **default** | ✅ |
-| `debian` | `13` | ✅ | ✅ |
-| `debian` | `12` | ✅ | ✅ |
-| `ubuntu` | `24.04` | ❌ **loud failure** | ✅ |
-| `alpine` | any | ⚠️ silently becomes debian 13 | ⚠️ same |
+| `distribution` | `version` | qemu (Linux) | lima (macOS) | WSL2 (Windows) |
+|---|---|---|---|---|
+| `ubuntu` | `26.04` | ✅ **default** | ✅ | ✅ |
+| `debian` | `13` | ✅ | ✅ | ✅ |
+| `debian` | `12` | ✅ | ✅ | ❌ falls back to debian 13 |
+| `ubuntu` | `24.04` | ❌ **loud failure** | ✅ | ❌ falls back to debian 13 |
+| `alpine`, a typo | any | ⚠️ silently becomes debian 13 | ⚠️ same | ⚠️ same |
 
-So the **portable set is exactly `ubuntu` 26.04 and `debian` 12/13** — write anything else and the
-manifest stops working for half its audience. Two asymmetries worth holding:
+So the **portable set is exactly `ubuntu` 26.04 and `debian` 13**. Write anything else and the
+manifest stops working for part of its audience. The asymmetries worth holding:
 
-- An unsupported version of a **known** distribution **fails provisioning loudly** and never falls
-  back — deliberate, so a box can never lie about its OS. `ubuntu: "24.04"` is the trap: it is
-  perfectly good on a colleague's Mac and dead on Linux.
-- An **unknown distribution** (`alpine`, a typo) does the opposite: it silently falls back to
-  debian 13. A box that came up "fine" on the wrong OS is the harder bug, so spell the
-  distribution from the table and confirm what booted:
+- An unsupported version of a **known** distribution **fails loudly on qemu and lima**, and the
+  message names the supported pairs. `ubuntu: "24.04"` is the trap: it is perfectly good on a
+  colleague's Mac and dead on Linux.
+- An **unknown distribution** (`alpine`, a typo), and anything WSL2 does not carry, does the
+  opposite: it silently boots debian 13. A box that came up "fine" on the wrong OS is the harder
+  bug, so spell the distribution from the table and confirm what booted:
 
   ```bash
   rl shell <name> -- 'cat /etc/os-release'
   ```
+
+- **Leave `image.os` out.** WSL2 reads `os` in place of `distribution` when both are set, so
+  `os: linux` makes it look up `linux-26.04`, find nothing, and boot debian 13. qemu and lima read
+  only `distribution` and `version`, so leaving `os` out costs nothing anywhere.
 
 Both families are debian-family, so `packages:` names, apt repositories and the whole devtool
 catalog behave identically across the portable set. Changing distribution does **not** change any
@@ -57,8 +61,9 @@ other field of the manifest — and note `image` is the one field `DiffSpec` com
 An unknown `devtools[].name` **fails the box** — it is reported, not ignored. The complete set:
 
 `docker` · `nodejs` · `go` · `golangci-lint` · `git` · `vscode-web` · `claude-code` · `codex` ·
-`playwright` · `kind` · `kubectl` · `helm` · `kubectx` · `kubens` · `fzf` · `gcloud` · `aws` ·
-`az` · `gh` · `passthrough-www-browser` · `python` · `spire-agent`
+`cursor-agent` · `agy` · `devcontainer-cli` · `playwright` · `kind` · `kubectl` · `helm` ·
+`kubectx` · `kubens` · `fzf` · `gcloud` · `aws` · `az` · `gh` · `passthrough-www-browser` ·
+`python` · `spire-agent`
 
 **There is no `rust`, `java`, `uv`, `poetry`, `maven` or `cargo` devtool.** Those runtimes go
 through `packages:` or a `scripts:` step. **`python` IS one** — it installs the distribution's
@@ -77,9 +82,12 @@ python3, pip and venv, and it takes no `version:`; for a specific interpreter ve
 | Dockerfile or compose present | `- {name: docker}` **and** `identity.groups: [docker]` |
 | Kubernetes / Helm | `docker`, then `- {name: kind, config: {...}}`, `kubectl`, `helm` — docker must come first |
 | Playwright tests | `- {name: playwright, config: {browsers: [chromium]}}` — adds minutes to the first converge |
+| `.devcontainer/devcontainer.json` | `- {name: devcontainer-cli}` installs the `devcontainer` CLI, after `nodejs` and `docker`; building and starting the container is a `scripts:` step |
 
-Ordering matters: declare `nodejs` **before** `claude-code` / `codex` / `playwright`, or they
-pull the distro Node. Declare `docker` before `kind`.
+Ordering matters: declare `nodejs` **before** `claude-code` / `codex` / `playwright` /
+`devcontainer-cli`, or they pull the distro Node. Declare `docker` before `kind`. `claude-code`,
+`codex`, `cursor-agent` and `agy` install coding-agent CLIs; they are for a developer working in
+the box, and nothing an app needs to run.
 
 `config` is only read by `kind` and `playwright`. Everywhere else it is inert.
 
@@ -91,7 +99,7 @@ kind: WorkstationConfig
 metadata:
   name: <app>
 spec:
-  image: {os: linux, distribution: ubuntu, version: "26.04"}   # the default — see below
+  image: {distribution: ubuntu, version: "26.04"}   # the default — see below
   selector: {matchLabels: {app: <app>}}
   priority: 100
 
@@ -212,8 +220,8 @@ So an undersized first attempt costs you a full delete + recreate plus a fresh c
 sizing from the run plan, before the first apply. 8 GiB / 4 vCPU is a reasonable default for a
 Node or Go build; go higher for a monorepo.
 
-(For contrast: `dockertest` *does* diff `cpus`/`memory`, and cloud providers resize for real. This
-rule is specific to the local VM providers, which is exactly what you are using.)
+(Cloud providers resize for real. This rule is specific to the local VM providers, which is exactly
+what you are using.)
 
 ### Three more constraints on `providerConfig`
 
@@ -262,8 +270,8 @@ rule is specific to the local VM providers, which is exactly what you are using.
 - **It is read from the Workstation spec only.** `providerConfig` is tombstoned on
   `WorkstationConfig` and rejected at apply — sizing cannot live in the config layer.
 - The flat `memory` / `cpus` keys are the **local** shape. A cloud provider takes a nested
-  `providerConfig: {gcp: {machineType: …}}`, which is a cloud pin — see "Cloud providers, when the
-  user asks for one" below, and note that sizing is only ever what the user named.
+  `providerConfig: {gcp: {machineType: …}}`, which is a cloud pin — see `clouds.md`, and note that
+  sizing is only ever what the user named.
 
 ## SSHKey — private repos only
 
@@ -312,83 +320,15 @@ reference — do not paste it into the manifest.
 
 ## Cloud providers, when the user asks for one
 
-**Only when the user names one.** Unasked, write no provider and no requirements and let
-capability discovery pick the local one — that is what keeps the manifest portable, and it is
-still the default. `rl status -o json` says whether a `CloudAccount` for that provider is
-readable from this device (SKILL.md §3, check 5) — **configuration only: it validates no
-credential and makes no network call.** `unavailable` is a definite no and a stop; `unknown` for
-a cloud usually means the user is not an org administrator rather than that the cloud is missing.
-Never fall back to local when a cloud was named.
-
-The change is additive and lives on the **Workstation** only, so the config stays untouched. It is
-the pin **plus the fields that cloud requires**, and no more:
+**Only when the user names one.** Unasked, write no provider and no requirements and let capability
+discovery pick the local one; that is what keeps the manifest portable. When the user does name a
+cloud, `clouds.md` has the whole procedure: when to pin and when to stop, which `providerConfig`
+fields you may write, and how a missing one shows up. The pin lives on the **Workstation** only,
+so the config stays untouched:
 
 ```yaml
 spec:
   requirements: [provider:gcp]
   providerConfig:
-    gcp: {project: <the user's project>, zone: <the user's zone>}
+    gcp: {project: <the user's project>}   # only what the user gave you
 ```
-
-**Each cloud has REQUIRED fields, and a box whose RESOLVED config lacks them never starts:**
-
-| cloud | required in `providerConfig.<cloud>` |
-|---|---|
-| `gcp` | `project`, `zone` |
-| `aws` | `region` |
-| `azure` | `subscriptionId`, `resourceGroup`, `location`, **and** `networkInterfaceId` **or** `subnetId` |
-
-**You cannot invent any of them** — a project id, a subscription, a resource group and a region are
-facts about the user's account that no amount of reading the repository will tell you. **But do not
-refuse up front either**: an organisation's `CloudIdentity` can supply them through the
-provider-config fold, so a run that stops because the user did not recite them denies work that
-would have succeeded. Write what the user gave, apply, and let the box tell you.
-
-**`rl apply` exits 0 whether or not a required field is there.** What changes is the workstation —
-and WHICH status it takes depends on who refused. A field the factory needs lands
-`ProviderUnavailable` whose `status.message` names it: read that status, report it verbatim, and ask
-for the field it names. Azure's network field is refused later, by the VM create, and lands
-`CreateFailed` with the field name redacted away — see below.
-
-**Three keys are not the user's to give.** `serviceAccount`, `managedIdentity` and
-`iamInstanceProfile` are stripped from a member's config unconditionally and re-injected from the
-admin-owned `CloudIdentity`. If the status names one of them, asking the user to set it loops
-forever — say that an org administrator has to attach it instead.
-
-**Azure's network field fails LATE and OPAQUELY.** The factory accepts a config without it and the
-VM create then fails at `ensureNIC` — and that error is not user-facing, so what reaches the user is
-`internal error (ref: <id>)` and nothing else. If an azure box fails with that and its config has
-neither `networkInterfaceId` nor `subnetId`, that is almost certainly why: say so, and ask which
-subnet. Do not expect the field's name to appear anywhere in the message; it is redacted.
-
-**That table is what the factory or the VM create refuses to proceed without; it is not the whole
-matrix.**
-Some fields are required only in certain shapes — a GCE **pull** box needs
-`providerConfig.gcp.serviceAccount` unless the project's default compute service account exists,
-for instance, and that one is admin-owned rather than the user's to set (above). So treat any
-status naming a `providerConfig.<cloud>.<field>` the same way: report it verbatim, and ask whoever
-owns that field — the user for an account fact, an org administrator for an identity key. Never
-guess one, and never work around it by switching to a local provider.
-
-**Everything else in that block stays out unless the user named it** — but for two different
-reasons, and the second one bites differently. `machineType`, `diskGiB` and their siblings are
-BILLING decisions: write what the user asked for and nothing more, and say in the run report which
-fields came from them. On `aws`, `subnetId` and `securityGroupIds` are REACHABILITY: left empty,
-EC2 places the box in the default VPC with the default security group, which permits no inbound
-SSH — so the box boots, bills, and the device cannot dial it. (Whether that bites depends on the
-account's own VPC defaults, so treat it as the first thing to ask about when an aws box is up but
-unreachable, not as a field to invent.)
-
-A cloud-pinned Workstation routes to the logged-in control plane and **errors when logged
-out**, which is exactly why it is not in the portable default — and why `rl status` is worth
-reading first: `remote.loggedIn` is false on a device with no control plane, and every remote
-provider then carries a `reason` that already says to log in.
-
-**No eval run has ever exercised this path.** Of the 126 stored runs, none pins a cloud:
-
-```bash
-grep -l 'provider:gcp\|provider:aws\|provider:azure' eval/results/*.json | wc -l   # -> 0
-```
-
-The routing above is what the product documents; treat a cloud run as unproven, and report what
-actually happened rather than assuming it behaved like the local case.

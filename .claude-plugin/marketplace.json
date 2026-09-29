@@ -11,7 +11,7 @@
     {
       "name": "run-on-ringleader",
       "displayName": "Run on Ringleader",
-      "version": "0.7.1",
+      "version": "0.8.0",
       "description": "Turn a code repository into a running Ringleader workstation: works out how the app is meant to run, generates portable .ringleader/ manifests, iterates until the app answers on the port its own docs promise, and tears the workstation down afterwards.",
       "source": "./",
       "strict": false,
