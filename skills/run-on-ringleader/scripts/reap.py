@@ -4,10 +4,17 @@
 Deletes exactly the objects a `.ringleader/` manifest set declares, then verifies they are gone.
 
     scripts/reap.py .ringleader [-n <namespace>] [--dry-run] [--timeout 600]
+    scripts/reap.py .ringleader --also Secret/myapp-git-5098e52d
 
-SAFETY: it only ever deletes objects NAMED IN THE MANIFESTS. It will not delete an object it
-merely thinks looks related, and it will not delete by label or prefix. A leftover that is not
-in the manifests is reported, never removed.
+SAFETY: it only ever deletes objects NAMED IN THE MANIFESTS, or named on the command line with
+`--also`. It will not delete an object it merely thinks looks related, and it will not delete by
+label or prefix. A leftover that is not in the manifests is reported, never removed.
+
+`--also` exists because not every object a run creates is in a manifest. The clone credential is
+a `Secret` created with `rl secret create`, deliberately never written to `.ringleader/` — that
+directory is committed, and a token in a committed file is a leaked token. So the one object with
+no manifest to reap it from is named here instead, which keeps the "only what you were told
+about" guarantee intact.
 
 Exit codes: 0 = everything gone · 1 = something survived · 2 = usage/environment error.
 """
@@ -51,9 +58,27 @@ def run(args: list[str], timeout: int = 120) -> tuple[int, str, str]:
     return p.returncode, p.stdout, p.stderr
 
 
-def declared_objects(manifest_dir: Path) -> list[tuple[str, str]]:
-    """Every (kind, name) the manifests declare, deduped, in deletion order."""
-    found: list[tuple[str, str]] = []
+def parse_also(values: list[str]) -> list[tuple[str, str]]:
+    """`--also Kind/name` pairs, validated.
+
+    A bare name would be ambiguous and a wrong kind would send the delete at the wrong noun, so
+    both halves are required and the kind must be one this tool knows how to delete.
+    """
+    out: list[tuple[str, str]] = []
+    for raw in values:
+        kind, sep, name = raw.partition("/")
+        if not sep or not kind.strip() or not name.strip():
+            raise ValueError(f"--also expects Kind/name, got {raw!r}")
+        match = next((k for k in KIND_NOUN if k.lower() == kind.strip().lower()), None)
+        if match is None:
+            raise ValueError(f"--also: unknown kind {kind!r}; known: {', '.join(sorted(KIND_NOUN))}")
+        out.append((match, name.strip()))
+    return out
+
+
+def declared_objects(manifest_dir: Path, also: list[tuple[str, str]] | None = None) -> list[tuple[str, str]]:
+    """Every (kind, name) the manifests declare, plus any `--also` pairs, deduped, in deletion order."""
+    found: list[tuple[str, str]] = list(also or [])
     for path in sorted(manifest_dir.glob("*.y*ml")):
         try:
             docs = list(yaml.safe_load_all(path.read_text()))
@@ -128,18 +153,27 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--timeout", type=int, default=600, help="seconds to wait for objects to disappear")
     ap.add_argument("--json", action="store_true", help="emit a machine-readable summary")
+    ap.add_argument("--also", action="append", default=[], metavar="Kind/name",
+                    help="an object created OUTSIDE the manifests (e.g. Secret/myapp-git-5098e52d), repeatable")
     args = ap.parse_args()
+
+    try:
+        also = parse_also(args.also)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 2
 
     if not args.manifest_dir.is_dir():
         print(f"no such directory: {args.manifest_dir}", file=sys.stderr)
         return 2
 
-    objects = declared_objects(args.manifest_dir)
+    objects = declared_objects(args.manifest_dir, also)
     if not objects:
         print(f"no objects declared in {args.manifest_dir}")
         return 0
 
-    print(f"declared in {args.manifest_dir}:")
+    print(f"declared in {args.manifest_dir}:" if not also
+          else f"declared in {args.manifest_dir}, plus {len(also)} named with --also:")
     for kind, name in objects:
         print(f"  {kind}/{name}")
 
@@ -190,6 +224,7 @@ def main() -> int:
         "manifestDir": str(args.manifest_dir),
         "namespace": args.namespace,
         "declared": [f"{k}/{n}" for k, n in objects],
+        "also": [f"{k}/{n}" for k, n in also],
         "deleted": deleted,
         "deleteFailed": failed,
         "leftovers": leftovers,

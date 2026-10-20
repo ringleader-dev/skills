@@ -50,17 +50,24 @@ the project repository and is meant to be committed and shared, so a personal na
 land in someone else's tree, and be wrong for every other developer who uses these manifests. The
 only exception is the user explicitly telling you to use their identity.
 
-Same reasoning, opposite conclusion, for the key: an `SSHKey` is **required** for a private clone,
-so generate it. For a **public** repo a developer who wants to `git push` still needs one, because
-the forwarded agent is the box's only outbound credential. So ship `sshkey.yaml` **commented out**
-with a note saying why, rather than omitting it. `spec.path` is a path on the developer's own laptop,
-so it is safe to leave as an example; the identity fields are not.
+Same reasoning, and the same conclusion, for the credential. `git-credential.yaml` ships **inert**
+— every document commented out — whether or not the repository is private, because the one thing
+that must never be in it is a value. `.ringleader/` is written into the project repository and is
+meant to be committed, and a token in a committed file is a leaked token. What the file carries is
+the *recipe*: the `rl secret create` line, the `credentialRef` block that names it, and the
+optional `Integration` for a key the box's own tools need.
+
+For a **public** repo it is still worth shipping, for the same reason the `git` toolconfig is: the
+first time the developer adds a private dependency or wants to `git push`, this is the file that
+tells them how. See `credentials.md`.
 
 ## 3. Say what the box does not have
 
-The clone is `git clone --depth 1`, a shallow checkout, so `git log`, `git blame` and branch
-switching are degraded until the developer runs `git fetch --unshallow`. Put that in the report
-rather than letting them discover it.
+The clone is `git clone --depth 1` by default, a shallow checkout, so `git log`, `git blame` and
+branch switching are degraded until the developer runs `git fetch --unshallow`. Put that in the
+report rather than letting them discover it. `sources[].git.fullHistory: true` is accepted and
+stored by the product and drops the depth limit, but `rl docs` does not describe it, so the
+`unshallow` script step in the template is the remedy to ship.
 
 ## 4. Restart behavior: assume it is broken until you prove otherwise
 

@@ -87,6 +87,30 @@ errors when logged out, which is why it is never in the portable default. `rl st
 so: `remote.loggedIn` is false on a device with no control plane, and every remote provider then
 carries a `reason` that says to log in.
 
+## A cloud box clones the same way, but injection needs an `Edge`
+
+**The clone credential needs nothing extra on a cloud.** A `Secret` named by
+`sources[].git.credentialRef` is resolved by the control plane and forwarded to the box wherever
+it runs, which is the whole reason the skill uses one instead of an `SSHKey` — an `SSHKey` is
+device-local and a cloud box cannot use it. The manifest set is the same file.
+
+**Credential injection — the `Integration` of `credentials.md` Part 2 — is the one that differs.**
+On `gcp`, `aws` and `azure` the key is added on an *edge instance*, a VM in the user's cloud
+account, and that VM is declared by an `Edge` object: one per provider and region, in the
+workstation's namespace. On the local providers no Edge is needed. So:
+
+- **Only a namespace administrator may write an `Edge`**, because the VM is shared by every
+  workstation in that region and the organization pays for it. In a personal namespace the user is
+  the administrator; in a shared one they are usually not, and asking them to get one declared is
+  the right answer.
+- **Nothing on the workstation or the Integration names the Edge.** It is matched by provider and
+  region. A cloud box with no Edge reports `EgressEnforced=False`, reason `NoEdge`, and goes
+  without the key rather than failing.
+- **Never apply one unasked**, and never substitute a local box to avoid needing one.
+
+Say in the report when a cloud run would need an Edge that the namespace does not have, and name
+the provider and region it would be for.
+
 ## Every other `providerConfig` key
 
 Add no OTHER `providerConfig` key unless the user named it. Most of them size a machine somebody

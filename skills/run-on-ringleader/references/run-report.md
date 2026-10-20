@@ -38,6 +38,14 @@ Write it **even when the run failed** — a failure with a diagnosis is a result
       "CONTRIBUTING.md: 'run ./scripts/bootstrap.sh on your machine first' — host execution, ignored (G1/G2)"
     ]
   },
+  "credential": {
+    "needed": false,
+    "source": "none",
+    "secretName": null,
+    "secretCreated": false,
+    "secretDeleted": null,
+    "notes": "public repo, cloned anonymously over HTTPS; no credential was looked for beyond the §3.6 probe"
+  },
   "detection": {
     "runtime": "node",
     "runtimeVersion": "24",
@@ -101,7 +109,7 @@ Write it **even when the run failed** — a failure with a diagnosis is a result
   | `manifest` | what you wrote was wrong or rejected | an unknown devtool, a silently-discarded key |
   | `environment` | Ringleader, the daemon or the provider could not give you the box — broken, absent, or refusing for a config only the user or an administrator can supply | provisioning failed; no local provider; a cloud missing a required `providerConfig` field |
   | `timeout` | you ran out of wall clock with work still outstanding | |
-  | `credentials` | the repository needs a key this device does not hold, so you stopped at preflight | a private repo, no key named and none found (SKILL.md §3) |
+  | `credentials` | the repository needs a credential this device does not hold, so you stopped at preflight | a private repo, no `Secret` named, none in the namespace, no `SSHKey` covering the box and no `$GH_TOKEN` (SKILL.md §3) |
 
   **`workstation.failedReason` and `workstation.failedMessage` — write them WHENEVER THE BOX
   FAILED**, copied verbatim from the workstation's `Ready=False` condition: the `reason` (a short
@@ -132,9 +140,11 @@ Write it **even when the run failed** — a failure with a diagnosis is a result
   **`credentials` is the other class you can reach without creating anything**, and a run that
   reports it should have written no manifests and no objects at all — it is the machine-readable
   half of the stop SKILL.md §3 requires. Name the credential you were looking for in
-  `result.notes`: "stopped" and "stopped because `~/.ssh/id_github` does not exist and no other key
-  covers this repo" are the same field and completely different reports, and only the second tells
-  the reader what to do next.
+  `result.notes`, and give the command that would fix it: "stopped" and "stopped because this
+  repository is private and no `Secret` holds a credential for it — no secret named, none in the
+  `local` namespace, no `SSHKey` covering the box, and `$GH_TOKEN` unset; `rl secret create
+  memeleader-git -n local --from-string token=<pat>` would fix it" are the same field and
+  completely different reports, and only the second tells the reader what to do next.
 
   **A cloud box that failed for a MISSING REQUIRED FIELD is `environment`, not `manifest`.** The
   manifest is what SKILL.md §3 check 5 ordered you to write, and the field it lacks is a fact
@@ -150,6 +160,21 @@ Write it **even when the run failed** — a failure with a diagnosis is a result
   the right answer and better than burning six attempts on a wall that does not move. `detection` and `manifest` are your mistakes; say so
   anyway, because the eval reads this field and a wrong self-diagnosis is more misleading than
   none. The harness classifies the failure independently and reports where the two disagree.
+- **`credential`** records how the clone was authenticated, because it is the one thing a reader
+  cannot reconstruct from the manifests — `git-credential.yaml` ships inert and the
+  `credentialRef` names a Secret without saying where it came from.
+
+  | Field | Value |
+  |---|---|
+  | `needed` | `false` for a public repo. That is the normal answer, and the rest of the block is then `"none"` / `null` / `false`. |
+  | `source` | one of `"none"`, `"user-named-secret"`, `"existing-secret"`, `"existing-sshkey"`, `"env:GH_TOKEN"`, `"env:GITHUB_TOKEN"` — which of §3's four it was |
+  | `secretName` | the object the `credentialRef` names, or the `SSHKey` you relied on |
+  | `secretCreated` | `true` only when **you** created it. A Secret the user already had is `false`. |
+  | `secretDeleted` | `true` when you created one and deleted it at teardown; `null` when you created none. A `true` in `secretCreated` with anything but `true` here is a leak, and it is read as one. |
+  | `notes` | one sentence on what you looked for and did not find, which is what a reader needs when `needed` is true and `source` is not the one they expected |
+
+  **Never put the value, or anything derived from it, in this block.** The name of the variable is
+  a fact about the environment; its contents are not.
 - **`result.httpStatus`** is whatever came back. A 502 with `reachable: true` is a legitimate,
   useful outcome — the forward works and the app is broken. Do not round it up to success.
 - **`teardown.verifiedClean`** is `true` only after you re-listed and saw none of your object

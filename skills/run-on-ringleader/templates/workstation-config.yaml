@@ -65,6 +65,14 @@ spec:
       git:
         url: <clone-url>
         ref: <branch|tag|sha>        # omit for the remote's default branch
+        # PRIVATE REPO ONLY — names the Secret that holds the credential (git-credential.yaml).
+        # The URL decides what that Secret must hold: an `https://` URL takes a TOKEN, a
+        # `git@host:path` URL takes an SSH PRIVATE KEY. `rl apply` does NOT check that the
+        # Secret exists, so confirm it before you apply — a missing one fails six minutes later,
+        # inside the box, as a clone error.
+        # credentialRef:
+        #   name: <app>-git-${shortHash:creatorUserId}
+        #   key: token               # omit for a single-key Secret
       path: /home/dev/src/<app>      # an empty path SKIPS the source entirely
       # pinned = clone once and never move it. Use `latest` to track the branch every reconcile.
       updatePolicy: pinned
@@ -94,8 +102,10 @@ spec:
           echo "<VAR>=$(openssl rand -hex 32)" >> .env
         }
 
-    # The clone is always `git clone --depth 1` — there is no depth knob — so `git log`, `git blame`
-    # and branch switching are degraded. Uncomment to get full history (costs one fetch).
+    # The clone is `git clone --depth 1` by DEFAULT, so `git log`, `git blame` and branch switching
+    # are degraded. `sources[].git.fullHistory: true` is accepted by the product and drops the
+    # depth limit, but `rl docs` does not describe it — so the portable remedy is this step, which
+    # costs one fetch and works on any version. Uncomment to get full history.
     # - name: unshallow
     #   phase: user
     #   runPolicy: once

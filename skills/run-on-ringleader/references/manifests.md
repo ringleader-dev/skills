@@ -8,7 +8,7 @@ the user asks for one" below:
 .ringleader/
   workstation-config.yaml     # everything: image, tools, source, ports, scripts
   workstation.yaml            # a name and a label
-  sshkey.yaml                 # private repos only
+  git-credential.yaml         # the credential recipe, shipped INERT (every document commented out)
   .run-report.json            # written at the end
 ```
 
@@ -273,29 +273,40 @@ what you are using.)
   `providerConfig: {gcp: {machineType: …}}`, which is a cloud pin — see `clouds.md`, and note that
   sizing is only ever what the user named.
 
-## SSHKey — private repos only
+## The clone credential — private repos only
+
+A private repository is cloned with **credential injection**: a `Secret` holds the credential and
+the source names it. `references/credentials.md` has the whole procedure; the manifest half is one
+block:
 
 ```yaml
-apiVersion: workstations.ringleader.dev/v1
-kind: SSHKey
-metadata:
-  name: <app>-git
-spec:
-  path: ~/.ssh/id_ed25519          # the key on THIS laptop; there is no inline-key field
-  selector:
-    matchLabels:
-      app: <app>
+sources:
+  - name: <app>
+    path: /home/dev/src/<app>
+    git:
+      url: https://github.com/<owner>/<repo>.git
+      credentialRef:
+        name: <app>-git-${shortHash:creatorUserId}
+        key: token               # omit for a single-key Secret
 ```
 
-- Device-local: it never reaches a control plane, and the private key stays in the daemon's
-  in-process keyring — it is forwarded as an ssh-agent, never written to the box.
-- **It must share a namespace with the Workstation.** A key in `local` does not reach a box in
+- **The Secret is created from the command line, never written into `.ringleader/`**:
+  `rl secret create <name> -n <ns> --from-string token=<pat>`. The directory is meant to be
+  committed, so `git-credential.yaml` ships inert — the recipe, not the value.
+- **The URL decides what the Secret must hold**: `https://` takes a token (a PAT),
+  `git@host:path` or `ssh://` takes an SSH private key (a deploy key). Mismatch them and the clone
+  fails in the box.
+- **`rl apply` does NOT check that the Secret exists.** Verified: a config naming a missing one
+  applies cleanly and exits 0, then fails six minutes later as a clone error.
+- **It must share a namespace with the Workstation.** A Secret in `local` does not reach a box in
   `acme`, silently.
-- An absent or empty `selector` matches **every** workstation in the namespace.
-- `spec.selector` is an opaque subtree — a typo in `matchLabels` silently means "match
-  everything". Proof-read it.
+- What reaches the box: the value lands in `/opt/ringleader/config/secrets.json`, `0600 root:root`
+  — not in `.git/config`, not in the remote URL, not readable by the login user.
 - github.com's host key is trusted automatically for a `git@github.com:` source. A self-hosted
   host needs `sources[].sshKnownHosts`.
+- An `SSHKey` object still works and forwards a local key as an ssh-agent. Rely on one the user
+  already has; do not create one. It is a device-local kind — it forwards only from the device
+  that declared it and never reaches a control plane — so it cannot travel with the manifests.
 
 ## Secrets an app needs to boot
 
@@ -315,8 +326,10 @@ start script, idempotently — never bake a secret into a manifest:
     }
 ```
 
-For a secret the *user* must supply (an API key), use a `Secret` object and a `${secret:NAME}`
-reference — do not paste it into the manifest.
+For a secret the *user* must supply (an API key), use a `Secret` and a `${secret:<name>/<key>}`
+reference — do not paste it into the manifest. That is the same Secret grammar
+`credentialRef: {name, key}` compiles to, so one Secret can serve both the clone and the app. For
+a key that must never land on the box at all, `credentials.md` Part 2 has the `Integration`.
 
 ## Cloud providers, when the user asks for one
 

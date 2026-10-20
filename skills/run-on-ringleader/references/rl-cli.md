@@ -151,9 +151,21 @@ rl tmux  [name] [-n <ns>]
 rl auth status [-o json]        # safe standalone; never fails on an unreachable control plane
 rl namespace use                # reports the resolved namespace AND its provenance
 rl daemon status | start | stop
-rl sshkey get [-o yaml] [-n <ns>]
 rl version
 ```
+
+### Secrets (the clone credential)
+
+```bash
+rl secret get [-n <ns>]                         # the names; values are never printed
+rl secret get <name> -n <ns> -o yaml            # spec.redactedData lists the KEY NAMES only
+rl secret create <name> -n <ns> --from-string token="$GH_TOKEN"
+rl secret delete <name> -y -n <ns>              # -y: delete-by-name prompts without it
+rl sshkey get [-o yaml] [-n <ns>]               # one the USER already has; never create one
+```
+
+`rl secret create` takes `-n`, unlike `rl apply`. A Secret is broadcast to every origin of its
+namespace, and `rl apply` does **not** check that a `credentialRef` names one that exists.
 
 ## Where an un-namespaced manifest lands
 
@@ -174,4 +186,5 @@ Routing notes that matter:
   `wsl2`), routes to **self** even when logged in — a local box is sticky.
 - A Workstation pinned to a cloud provider routes to the logged-in control plane, and **errors
   outright** when logged out: `no origin advertises provider:<p>`.
-- `SSHKey` and `LocalBinding` are device-local and never reach a control plane.
+- `SSHKey` and `LocalBinding` are device-local and never reach a control plane, which is
+  why a `Secret` — which does — is what a cloud box clones with.

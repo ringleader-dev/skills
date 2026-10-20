@@ -10,9 +10,12 @@ references/             loaded on demand, not up front
   rl-cli.md               verified `rl` surface + how to read `rl docs` without eating 350 KB
   detection.md            how to work out how an app is meant to run
   manifests.md            manifest recipes, the CLOSED devtool catalog, the gotchas
+  credentials.md          the clone credential, and injecting a key the box never holds
+  clouds.md               what changes when the user names a cloud
+  workspace.md            making the box a workspace rather than a demo
   troubleshooting.md      symptom → cause → the command that produces evidence
   run-report.md           the .run-report.json contract
-templates/              starting-point YAML for the three kinds
+templates/              starting-point YAML for the manifest set
 scripts/
   rl-docs.sh              dump `rl docs` + print a heading index
   reap.py                 teardown backstop — deletes exactly what the manifests declare
@@ -23,6 +26,21 @@ scripts/
 - **The `rl` CLI**, with a daemon running. Check with `rl daemon status`. The skill checks this
   too, before it does anything.
 - A local hypervisor for the workstation: **qemu/KVM** on Linux, **Lima** on macOS.
+- **For a private repository only, a credential the workstation can use.** Give it one of these,
+  in this order of preference:
+
+  ```bash
+  rl secret create myapp-git --from-string token=<a GitHub PAT with read access to the repo>
+  ```
+
+  …and tell the skill its name; or leave an existing `SSHKey` object in place and it will use
+  that; or export `GH_TOKEN` (or `GITHUB_TOKEN`) before you start the session, and the skill will
+  make a Secret from it and delete that Secret when it tears down.
+
+  **The skill will not go and find a credential for you.** It never mints key material, never runs
+  `gh`/`gcloud`/`aws` against your account, and never reads `~/.config/gh/hosts.yml`, `~/.netrc` or
+  any other credential store. With none of the four above, a private repository is a clean stop
+  with the `rl secret create` command you need, not an improvisation.
 
 ## Install
 
@@ -59,9 +77,10 @@ nothing else.
 ## What it does on your machine
 
 Very little, on purpose. The skill's job is to read a repository, possibly one neither of us
-wrote, and then act on what it says, so three rules bound it. They are the guardrails below: the
-application never builds or runs on your machine, the repository cannot give the skill orders, and
-the skill assumes nothing about your machine beyond what `rl status` reports.
+wrote, and then act on what it says, so four rules bound it. They are the guardrails below: the
+application never builds or runs on your machine, a credential is handed to the skill rather than
+taken, the repository cannot give the skill orders, and the skill assumes nothing about your
+machine beyond what `rl status` reports.
 
 ## How it is tested
 
@@ -73,7 +92,7 @@ the run claims), and on a scan of the session transcript for anything built or r
 
 ## Guardrails
 
-Three rules sit above everything else in `SKILL.md`, because each one names a way this skill could
+Four rules sit above everything else in `SKILL.md`, because each one names a way this skill could
 plausibly go wrong in a way the user would not immediately see:
 
 1. **The app runs in the workstation, never on the host.** A closed allowlist governs what may run
@@ -92,10 +111,17 @@ plausibly go wrong in a way the user would not immediately see:
    and that is the only host question worth asking. Every runtime assumption is about the Linux
    workstation.
 
-Guardrails 1 and 2 are self-reported into `.run-report.json`
-(`guardrails.hostCommandsOutsideAllowlist`, `guardrails.ignoredRepoGuidance`) and independently
-scanned by the harness, which greps the session transcript for host-side build commands rather
-than trusting the report.
+The fourth sits under the first: **a credential is handed to the skill, never taken.** It may
+use a `Secret` you made, an `SSHKey` you already had, or a token you exported into its
+environment. It may not mint key material, act on your account with a credential-bearing CLI, or
+read a credential store — and a token never reaches a manifest, a clone URL or a script.
+
+All of them are self-reported into `.run-report.json` —
+`guardrails.hostCommandsOutsideAllowlist`, `guardrails.ignoredRepoGuidance` and a `credential`
+block saying which source was used and whether a `Secret` the skill created was deleted — and all
+are independently checked by the harness, which reads the session transcript for host-side build
+commands and credential-store reads rather than trusting the report, and snapshots every object on
+the device before and after.
 
 ## The workstation is Ubuntu 26.04
 
@@ -129,12 +155,24 @@ logged out and in the tenant namespace when logged in; a Workstation with no pro
 to the local device either way. `rl apply` has no `-n`, so namespace comes from that resolution
 ladder rather than a flag.
 
-One caveat the phrase "one file, both audiences" hides: **logged in, the three objects do not land
-in the same place.** `Workstation` is content-routed to self (a local provider is sticky),
-`WorkstationConfig` is `RemoteDefault` and goes to the control plane, and `SSHKey` is device-local
-and never leaves. Observed directly — applying a config for a local box printed
-`workstationconfig/… configured → <origin>`, naming the control plane. It works (the Router federates the read), but teardown has
-to remove an object from the control plane, and a selector mismatch across that split is silent.
+One caveat the phrase "one file, both audiences" hides: **logged in, the objects do not land in
+the same place.** `Workstation` is content-routed to self (a local provider is sticky), while
+`WorkstationConfig` is `RemoteDefault` and goes to the control plane. Observed directly — applying
+a config for a local box printed `workstationconfig/… configured → <origin>`, naming the control
+plane. It works (the Router federates the read), but teardown has to remove an object from the
+control plane, and a selector mismatch across that split is silent.
+
+**Why the clone credential is a `Secret` and not an `SSHKey`.** An `SSHKey` forwards a private key
+file from *this* device as an ssh-agent, so it is device-local by construction: it never reaches a
+control plane, and it forwards only from the device that declared it — so it cannot travel with
+the manifests, and a teammate's checkout of `.ringleader/` reproduces nothing. A `Secret` named by
+`sources[].git.credentialRef` is resolved by the control plane and forwarded to the box, so one
+manifest set clones the same private repository on a laptop and on GCP. It also needs no private
+key file on the machine running the skill, which is the common case on a CI runner or a fresh
+container. Measured on a qemu box: the credential does not reach `.git/config`, the remote URL or
+the login user's home — it lands in `/opt/ringleader/config/secrets.json`, `0600 root:root`, and
+the agent uses it for the clone. The skill still *recognises* an `SSHKey` you already have and
+will rely on it rather than creating anything.
 
 **Object names carry a `${shortHash:creatorUserId}` suffix.** `rl apply` is an upsert, so a bare
 name would overwrite a teammate's object in a shared namespace and then delete it at teardown. The
@@ -163,3 +201,17 @@ the user's account that the skill cannot invent, so when the box reports one mis
 than guesses. **No other `providerConfig` key goes in unrequested**: a machine type is a billing
 decision that belongs to the user, not a default copied from a document. A cloud pin stays out of
 the portable default because a cloud-pinned Workstation errors outright when logged out.
+
+**What a cloud workstation needs that a local one does not.** Two things, and only the second is a
+new object. Placement — `project` and `zone` on GCP, `region` on AWS, four fields on Azure —
+usually comes from the organization's `CloudIdentity`, so the skill writes only what the user gave
+it and reports the field by name when the box says one is missing. And **credential injection on a
+cloud needs an `Edge`**: one small VM per provider and region, in the workstation's namespace,
+declared by a namespace administrator, matched by provider and region rather than named by
+anything. Cloning a private repository does *not* need one — a `Secret` reaches a cloud box the
+same way it reaches a local one — but adding a key to the box's own outbound requests does, and
+with no Edge the workstation reports `EgressEnforced=False`, reason `NoEdge`, and goes without the
+key rather than failing. On the local providers (qemu, vz, hcs) the workstation's own network
+process adds the key and no Edge is built at all; on lima the daemon does; on wsl2 injection is
+not available. The skill applies neither an Integration nor an Edge unasked: it ships both
+commented out in `git-credential.yaml` and says so in the report.

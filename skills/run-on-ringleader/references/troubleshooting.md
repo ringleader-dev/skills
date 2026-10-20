@@ -78,6 +78,13 @@ If it still reports ~1 GiB / 2 cpus after you asked for more, either the recreat
 happened yet or your key is misspelled — `providerConfig` is free-form and unvalidated, so
 `memoryGiB:` or `mem:` silently yields the defaults.
 
+**`defaultLocalBinding` is the third field of that family, and the worst of them.** The generated
+LocalBinding is seeded **once per workstation UID**, so editing the block and re-applying is the
+same silent no-op. A malformed one is worse than a late one: the UID is recorded anyway, so no
+binding is ever created for that box, and nothing says so. `rl binding get -A` is what tells "a
+binding that is not forwarding" from "no binding at all" — the first is a connection problem, the
+second needs a recreate.
+
 ## `no space left on device` partway through a build
 
 The disk you asked for was too small. `providerConfig.disk` **is** honoured (the 8 GiB default is
